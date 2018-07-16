@@ -1,3 +1,4 @@
+/* vim: set noexpandtab: */
 /*
  * Copyright (c) 2009-2012 Niels Provos, Nick Mathewson
  *
@@ -158,6 +159,12 @@ evconnlistener_new(struct event_base *base,
     evutil_socket_t fd)
 {
 	struct evconnlistener_event *lev;
+	int socktype;
+	static unsigned int socklen = sizeof(int);
+
+	if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &socktype, &socklen) < 0) {
+		return NULL;
+	}
 
 #ifdef _WIN32
 	if (base && event_base_get_iocp_(base)) {
@@ -168,16 +175,17 @@ evconnlistener_new(struct event_base *base,
 				backlog, fd);
 	}
 #endif
-
-	if (backlog > 0) {
-		if (listen(fd, backlog) < 0)
-			return NULL;
-	} else if (backlog < 0) {
-		if (listen(fd, 128) < 0)
-			return NULL;
+	if (socktype != SOCK_DGRAM) {
+        if (backlog > 0) {
+            if (listen(fd, backlog) < 0)
+                return NULL;
+        } else if (backlog < 0) {
+            if (listen(fd, 128) < 0)
+                return NULL;
+        }
 	}
 
-	lev = mm_calloc(1, sizeof(struct evconnlistener_event));
+	lev = (struct evconnlistener_event *)mm_calloc(1, sizeof(*lev));
 	if (!lev)
 		return NULL;
 
