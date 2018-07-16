@@ -138,6 +138,16 @@ EVENT2_EXPORT_SYMBOL
 struct evconnlistener *evconnlistener_new_bind(struct event_base *base,
     evconnlistener_cb cb, void *ptr, unsigned flags, int backlog,
     const struct sockaddr *sa, int socklen);
+
+
+/**
+ * Same as evconnlistener_new_bind but using the socket type of `type`.
+ */
+EVENT2_EXPORT_SYMBOL
+struct evconnlistener *evconnlistener_new_bind_type(struct event_base *base,
+        evconnlistener_cb cb, void *ptr, unsigned flags, int backlog,
+        const struct sockaddr *sa, int socklen, int type);
+
 /**
    Disable and deallocate an evconnlistener.
  */

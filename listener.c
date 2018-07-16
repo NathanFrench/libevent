@@ -206,16 +206,15 @@ evconnlistener_new(struct event_base *base,
 	return &lev->base;
 }
 
-struct evconnlistener *
-evconnlistener_new_bind(struct event_base *base, evconnlistener_cb cb,
+static struct evconnlistener *
+listener_new_bind_(struct event_base *base, evconnlistener_cb cb,
     void *ptr, unsigned flags, int backlog, const struct sockaddr *sa,
-    int socklen)
+    int socklen, int socktype)
 {
 	struct evconnlistener *listener;
 	evutil_socket_t fd;
 	int on = 1;
 	int family = sa ? sa->sa_family : AF_UNSPEC;
-	int socktype = SOCK_STREAM | EVUTIL_SOCK_NONBLOCK;
 
 	if (backlog == 0)
 		return NULL;
@@ -259,6 +258,27 @@ err:
 	evutil_closesocket(fd);
 	return NULL;
 }
+
+struct evconnlistener *
+evconnlistener_new_bind(struct event_base * base, evconnlistener_cb cb,
+        void *ptr, unsigned flags, int backlog, const struct sockaddr *sa,
+        int socklen)
+{
+    return listener_new_bind_(base, cb, ptr, flags, backlog, sa, socklen, SOCK_STREAM | EVUTIL_SOCK_NONBLOCK);
+}
+
+struct evconnlistener *
+evconnlistener_new_bind_type(struct event_base * base, evconnlistener_cb cb,
+        void *ptr, unsigned flags, int backlog, const struct sockaddr *sa,
+        int socklen, int socktype) 
+{
+    if (!(socktype & EVUTIL_SOCK_NONBLOCK)) {
+        socktype |= EVUTIL_SOCK_NONBLOCK;
+    }
+
+    return listener_new_bind_(base, cb, ptr, flags, backlog, sa, socklen, socktype);
+}
+
 
 void
 evconnlistener_free(struct evconnlistener *lev)
