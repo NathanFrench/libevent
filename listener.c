@@ -278,7 +278,7 @@ evconnlistener_new_bind(struct event_base * base, evconnlistener_cb cb,
 struct evconnlistener *
 evconnlistener_new_bind_type(struct event_base * base, evconnlistener_cb cb,
         void *ptr, unsigned flags, int backlog, const struct sockaddr *sa,
-        int socklen, int socktype) 
+        int socklen, int socktype)
 {
     if (!(socktype & EVUTIL_SOCK_NONBLOCK)) {
         socktype |= EVUTIL_SOCK_NONBLOCK;
@@ -415,7 +415,8 @@ evconnlistener_set_error_cb(struct evconnlistener *lev,
 static void
 listener_read_cb(evutil_socket_t fd, short what, void *p)
 {
-	struct evconnlistener *lev = p;
+	(void)what;
+	struct evconnlistener *lev = (struct evconnlistener *)p;
 	int err;
 	evconnlistener_cb cb;
 	evconnlistener_errorcb errorcb;
@@ -423,7 +424,7 @@ listener_read_cb(evutil_socket_t fd, short what, void *p)
 	LOCK(lev);
 	while (1) {
 		struct sockaddr_storage ss;
-		ev_socklen_t socklen = sizeof(ss);
+		static ev_socklen_t socklen = sizeof(ss);
 		evutil_socket_t new_fd = evutil_accept4_(fd, (struct sockaddr*)&ss, &socklen, lev->accept4_flags);
 		if (new_fd < 0)
 			break;
