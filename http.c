@@ -5074,3 +5074,180 @@ evhttp_uri_set_fragment(struct evhttp_uri *uri, const char *fragment)
 	URI_SET_STR_(fragment);
 	return 0;
 }
+
+
+#define DEFAULT_HTTP_LOG_FMT "$rhost '$useragent' [$time] '$method $path HTTP/$proto' $status";
+#define HTTP_LOG_OP_TAGSIZE  1024
+
+enum http_log_op {
+    HTTP_LOG_OP_USERAGENT = 1,
+    HTTP_LOG_OP_PATH,
+    HTTP_LOG_OP_RHOST,
+    HTTP_LOG_OP_METHOD,
+    HTTP_LOG_OP_TIMESTAMP,
+    HTTP_LOG_OP_PROTOCOL,
+    HTTP_LOG_OP_STATUS,
+    HTTP_LOG_OP_REFERRER,
+    HTTP_LOG_OP_HOSTNAME,
+    HTTP_LOG_OP_PRINTABLE
+};
+
+struct http_log_op {
+    enum http_log_op type;
+    size_t           len;
+    char             tag[HTTP_LOG_OP_TAGSIZE];
+
+    TAILQ_ENTRY(http_log_op) next;
+}
+
+TAILQ_HEAD(http_log_format, http_log_op)
+
+static enum http_log_op
+evhttp_logfmt_to_type_(const char * fmt, int * arglen)
+{
+    int i;
+
+    static struct {
+        char           * format;
+        enum http_log_op type;
+    } http_logtype_map_[] = {
+        { "$useragent", HTTP_LOG_OP_USERAGENT },
+        { "$rhost",     HTTP_LOG_OP_RHOST     },
+        { "$time",      HTTP_LOG_OP_TIMESTAMP },
+        { "$method",    HTTP_LOG_OP_METHOD    },
+        { "$path",      HTTP_LOG_OP_PATH      },
+        { "$proto",     HTTP_LOG_OP_PROTOCOL  },
+        { "$status",    HTTP_LOG_OP_STATUS    },
+        { "$referrer",  HTTP_LOG_OP_REFERRER  },
+        { "$hostname",  HTTP_LOG_OP_HOSTNAME  },
+        { NULL,         HTTP_LOG_OP_PRINTABLE }
+    };
+
+    for (i = 0; http_logtype_map_[i].format; i++) {
+        const char          * m_format = http_logtype_map_[i].format;
+        enum http_log_op_type m_type   = http_logtype_map_[i].type;
+
+        if (!evutil_ascii_strncasecmp(m_format, fmt, strlen(m_format))) {
+            *arglen = strlen(m_format);
+
+            return m_type;
+        }
+    }
+
+    return 0;
+}
+
+static struct http_log_format *
+log_format_new_(void)
+{
+    struct http_log_format * format;
+
+    if (!(format = malloc(sizeof(*format)))) {
+        return NULL;
+    }
+
+    TAILQ_INIT(format);
+
+    return format;
+}
+
+static struct http_log_op *
+evhttp_log_op_new_(enum http_log_op_type type)
+{
+    struct http_log_op * op;
+
+    if (!(op = malloc(sizeof(*op)))) {
+        return NULL;
+    }
+}
+
+#define IS_HTTPLOG_FMT(X) (* X == '$' && *(X + 1) != '$')
+
+static void *
+evhttp_log_compile_(const char * logfmt)
+{
+    const char             * strp;
+    struct http_log_format * format;
+
+    if (!(format = log_format_new_())) {
+        return NULL;
+    }
+
+    for (strp = logfmt; *strp != '\0'; strp++) {
+        struct http_log_op * op;
+
+        if (IS_HTTPLOG_FMT(strp)) {
+            int arglen;
+
+            op    = evhttp_log_op_new_(evhttp_logfmt_to_type_(strp, &arglen));
+            strp += arglen - 1;
+
+            TAILQ_INSERT_TAIL(format, op, next);
+        } else {
+            log_format_addchar_(format, *strp);
+        }
+    }
+
+    return format;
+}
+
+void *
+evhttp_log_new(const char * logfmt)
+{
+    if (!logfmt) {
+        logfmt = DEFAULT_HTTP_LOG_FMT;
+    }
+
+    return evhttp_log_compile_(logfmt);
+}
+
+void
+evhttp_log_request_f(void * format_v, struct evhttp_request * request, FILE * fp)
+{
+    struct http_log_format * format = format_v;
+    struct http_log_op     * op;
+    struct timeval           tv;
+    struct tm              * tm;
+    struct sockaddr_in     * sin;
+    char                     tmp[64];
+
+    TAILQ_FOREACH(op, format, next) {
+        const char * logstr = NULL;
+
+        switch (op->type) {
+            case HTTP_LOG_OP_USERAGENT:
+                logstr = evhttp_find_header(request->input_headers, "User-Agent");
+                break;
+            case HTTP_LOG_OP_REFERRER:
+                logstr = evhttp_find_header(request->input_headers, "Referer");
+                break;
+            case HTTP_LOG_OP_PATH:
+                logstr = evhttp_uri_get_path(request->uri_elems);
+                break;
+            case HTTP_LOG_OP_METHOD:
+                logstr = evhttp_method(request->type);
+                break;
+            case HTTP_LOG_OP_TIMESTAMP:
+                event_base_gettimeofday_cached(request->evcon->bufev->ev_base, &tv);
+
+                tm     = localtime(&tv.tv_sec);
+                strftime(tmp, sizeof(tmp), "%d/%b/%Y:%X %z", tm);
+                logstr = tmp;
+                break;
+            case HTTP_LOG_OP_RHOST:
+                logstr = request->remote_host;
+                break;
+            case HTTP_LOG_OP_HOSTNAME:
+                logstr = evhttp_request_get_host(request);
+                break;
+            case HTTP_LOG_OP_PROTOCOL:
+            case HTTP_LOG_OP_PRINTABLE:
+                logstr = op->tag;
+                break;
+        } /* switch */
+
+        fputs(logstr ? logstr : "-", fp);
+    }
+
+    fputc('\n', fp);
+} /* evhttp_log_request_f */
