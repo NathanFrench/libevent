@@ -171,7 +171,7 @@ fake_getnameinfo(const struct sockaddr *sa, size_t salen, char *host,
 extern int debug;
 
 static evutil_socket_t bind_socket_ai(struct evutil_addrinfo *, int reuse);
-static evutil_socket_t bind_socket(const char *, ev_uint16_t, int reuse);
+static evutil_socket_t bind_socket(const char *, ev_uint16_t, int reuse, int *gaires);
 static void name_from_addr(struct sockaddr *, ev_socklen_t, char **, char **);
 static struct evhttp_uri *evhttp_uri_parse_authority(char *source_uri);
 static int evhttp_associate_new_request_with_connection(
@@ -2561,8 +2561,7 @@ evhttp_connection_connect_(struct evhttp_connection *evcon)
 	evcon->flags |= EVHTTP_CON_OUTGOING;
 
 	if (evcon->bind_address || evcon->bind_port) {
-		evcon->fd = bind_socket(
-			evcon->bind_address, evcon->bind_port, 0 /*reuse*/);
+		evcon->fd = bind_socket(evcon->bind_address, evcon->bind_port, 0 /*reuse*/, NULL);
 		if (evcon->fd == -1) {
 			event_debug(("%s: failed to bind to \"%s\"",
 				__func__, evcon->bind_address));
@@ -3550,13 +3549,13 @@ evhttp_bind_socket(struct evhttp *http, const char *address, ev_uint16_t port)
 }
 
 struct evhttp_bound_socket *
-evhttp_bind_socket_with_handle(struct evhttp *http, const char *address, ev_uint16_t port)
+evhttp_bind_socket_with_handle2(struct evhttp *http, const char *address, ev_uint16_t port, int *gaires)
 {
 	evutil_socket_t fd;
 	struct evhttp_bound_socket *bound;
 	int serrno;
 
-	if ((fd = bind_socket(address, port, 1 /*reuse*/)) == -1)
+	if ((fd = bind_socket(address, port, 1 /*reuse*/, gaires)) == -1)
 		return (NULL);
 
 	if (listen(fd, 128) == -1) {
@@ -3576,6 +3575,11 @@ evhttp_bind_socket_with_handle(struct evhttp *http, const char *address, ev_uint
 	}
 
 	return (NULL);
+}
+
+struct evhttp_bound_socket *
+evhttp_bind_socket_with_handle(struct evhttp *http, const char *address, ev_uint16_t port) {
+	return evhttp_bind_socket_with_handle2(http, address, port, NULL);
 }
 
 int
@@ -4426,7 +4430,7 @@ bind_socket_ai(struct evutil_addrinfo *ai, int reuse)
 }
 
 static struct evutil_addrinfo *
-make_addrinfo(const char *address, ev_uint16_t port)
+make_addrinfo(const char *address, ev_uint16_t port, int *gaires)
 {
 	struct evutil_addrinfo *ai = NULL;
 
@@ -4441,21 +4445,26 @@ make_addrinfo(const char *address, ev_uint16_t port)
 	 * types we don't have an interface to connect to. */
 	hints.ai_flags = EVUTIL_AI_PASSIVE|EVUTIL_AI_ADDRCONFIG;
 	evutil_snprintf(strport, sizeof(strport), "%d", port);
-	if ((ai_result = evutil_getaddrinfo(address, strport, &hints, &ai))
-	    != 0) {
+	if ((ai_result = evutil_getaddrinfo(address, strport, &hints, &ai)) != 0) {
 		if (ai_result == EVUTIL_EAI_SYSTEM)
 			event_warn("getaddrinfo");
 		else
-			event_warnx("getaddrinfo: %s",
-			    evutil_gai_strerror(ai_result));
+			event_warnx("getaddrinfo: %s", evutil_gai_strerror(ai_result));
+
+		if (gaires) 
+			*gaires = ai_result;
+
+
 		return (NULL);
 	}
+
+	if (gaires) *gaires = 0;
 
 	return (ai);
 }
 
 static evutil_socket_t
-bind_socket(const char *address, ev_uint16_t port, int reuse)
+bind_socket(const char *address, ev_uint16_t port, int reuse, int *gaires)
 {
 	evutil_socket_t fd;
 	struct evutil_addrinfo *aitop = NULL;
@@ -4464,7 +4473,7 @@ bind_socket(const char *address, ev_uint16_t port, int reuse)
 	if (address == NULL && port == 0)
 		return bind_socket_ai(NULL, 0);
 
-	aitop = make_addrinfo(address, port);
+	aitop = make_addrinfo(address, port, gaires);
 
 	if (aitop == NULL)
 		return (-1);
