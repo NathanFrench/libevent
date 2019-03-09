@@ -223,7 +223,17 @@ int event_debug_created_threadable_ctx_ = 0;
 static int event_debug_mode_too_late = 0;
 #ifndef EVENT__DISABLE_THREAD_SUPPORT
 static void *event_debug_map_lock_ = NULL;
+#define EVENT_DEBUG_TOO_LATE(mode) do {      \
+	EVLOCK_LOCK(event_debug_map_lock_, 0);   \
+	event_debug_mode_too_late = mode;        \
+	EVLOCK_UNLOCK(event_debug_map_lock_, 0); \
+} while(0)
+#else
+#define EVENT_DEBUG_TOO_LATE(mode) do { \
+	event_debug_mode_too_late = mode;   \
+} while(0)
 #endif
+
 static HT_HEAD(event_debug_map, event_debug_entry) global_debug_map =
 	HT_INITIALIZER();
 
@@ -257,7 +267,7 @@ static void event_debug_note_setup_(const struct event *ev)
 	EVLOCK_UNLOCK(event_debug_map_lock_, 0);
 
 out:
-	event_debug_mode_too_late = 1;
+	EVENT_DEBUG_TOO_LATE(1);
 }
 /* record that ev is no longer setup */
 static void event_debug_note_teardown_(const struct event *ev)
@@ -275,7 +285,7 @@ static void event_debug_note_teardown_(const struct event *ev)
 	EVLOCK_UNLOCK(event_debug_map_lock_, 0);
 
 out:
-	event_debug_mode_too_late = 1;
+	EVENT_DEBUG_TOO_LATE(1);
 }
 /* Macro: record that ev is now added */
 static void event_debug_note_add_(const struct event *ev)
@@ -301,7 +311,7 @@ static void event_debug_note_add_(const struct event *ev)
 	EVLOCK_UNLOCK(event_debug_map_lock_, 0);
 
 out:
-	event_debug_mode_too_late = 1;
+	EVENT_DEBUG_TOO_LATE(1);
 }
 /* record that ev is no longer added */
 static void event_debug_note_del_(const struct event *ev)
@@ -327,7 +337,7 @@ static void event_debug_note_del_(const struct event *ev)
 	EVLOCK_UNLOCK(event_debug_map_lock_, 0);
 
 out:
-	event_debug_mode_too_late = 1;
+	EVENT_DEBUG_TOO_LATE(1);
 }
 /* assert that ev is setup (i.e., okay to add or inspect) */
 static void event_debug_assert_is_setup_(const struct event *ev)
@@ -609,7 +619,7 @@ event_base_new_with_config(const struct event_config *cfg)
 	int should_check_environment;
 
 #ifndef EVENT__DISABLE_DEBUG_MODE
-	event_debug_mode_too_late = 1;
+	EVENT_DEBUG_TOO_LATE(1);
 #endif
 
 	if ((base = mm_calloc(1, sizeof(struct event_base))) == NULL) {
